@@ -12,8 +12,22 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 // ─── Database ────────────────────────────────────────────────────────────────
 
+// Railway provides DATABASE_URL as a postgres:// URI; fall back to appsettings
+string connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
+    ?? builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("No database connection string found.");
+
+// Convert postgres:// URI to Npgsql connection string if needed
+if (connectionString.StartsWith("postgres://") || connectionString.StartsWith("postgresql://"))
+{
+    Uri uri = new Uri(connectionString);
+    string userInfo = uri.UserInfo;
+    string[] parts = userInfo.Split(':');
+    connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={parts[0]};Password={parts[1]};SSL Mode=Require;Trust Server Certificate=true";
+}
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(connectionString));
 
 // ─── Identity ────────────────────────────────────────────────────────────────
 
@@ -72,11 +86,16 @@ builder.Services.AddAuthorization();
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
+string[] allowedOrigins = (Environment.GetEnvironmentVariable("FRONTEND_URL")
+    ?? builder.Configuration["FrontendUrl"]
+    ?? "http://localhost:5173")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("ViteDev", policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -130,6 +149,7 @@ app.UseCors("ViteDev");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapGet("/api/auth/health", () => Results.Ok(new { status = "healthy" }));
 
 // ─── Database Seed ────────────────────────────────────────────────────────────
 
