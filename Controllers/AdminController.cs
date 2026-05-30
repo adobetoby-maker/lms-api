@@ -334,6 +334,44 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>Get all completions across all courses.</summary>
+    [HttpGet("stats")]
+    public async Task<IActionResult> GetStats()
+    {
+        int totalCourses = await _db.Courses.CountAsync(c => c.IsActive);
+        int totalEnrollments = await _db.Enrollments.CountAsync();
+        int totalCompletions = await _db.Enrollments.CountAsync(e => e.Status == EnrollmentStatus.Passed);
+        int activeLearnersCount = await _db.Enrollments
+            .Where(e => e.Status == EnrollmentStatus.InProgress)
+            .Select(e => e.UserId).Distinct().CountAsync();
+
+        // Per-course breakdown
+        var courses = await _db.Courses
+            .Where(c => c.IsActive)
+            .Select(c => new
+            {
+                c.Id, c.Title,
+                Enrolled   = c.Enrollments.Count,
+                Completed  = c.Enrollments.Count(e => e.Status == EnrollmentStatus.Passed),
+                InProgress = c.Enrollments.Count(e => e.Status == EnrollmentStatus.InProgress),
+            }).ToListAsync();
+
+        // Recent activity (last 10 enrollments)
+        var recent = await _db.Enrollments
+            .Include(e => e.User)
+            .Include(e => e.Course)
+            .OrderByDescending(e => e.InvitedAt)
+            .Take(10)
+            .Select(e => new {
+                e.Id, e.Status,
+                UserEmail = e.User.Email,
+                UserName = e.User.FirstName + " " + e.User.LastName,
+                CourseTitle = e.Course.Title,
+                e.InvitedAt, e.CompletedAt
+            }).ToListAsync();
+
+        return Ok(new { totalCourses, totalEnrollments, totalCompletions, activeLearnersCount, courses, recent });
+    }
+
     [HttpGet("completions")]
     public async Task<ActionResult<List<EnrollmentSummaryDto>>> GetAllCompletions()
     {

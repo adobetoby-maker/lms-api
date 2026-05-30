@@ -213,6 +213,56 @@ static async Task SeedDatabaseAsync(WebApplication app)
                     string.Join(", ", result.Errors.Select(e => e.Description)));
             }
         }
+
+        // Seed demo learner with known password (create or reset)
+        const string learnerEmail = "learner@demo.com";
+        const string learnerPassword = "Learner123!";
+
+        ApplicationUser? learnerUser = await userManager.FindByEmailAsync(learnerEmail);
+        if (learnerUser == null)
+        {
+            learnerUser = new ApplicationUser
+            {
+                UserName = learnerEmail,
+                Email = learnerEmail,
+                FirstName = "Alex",
+                LastName = "Demo",
+                IsAdmin = false,
+                EmailConfirmed = true
+            };
+            IdentityResult lr = await userManager.CreateAsync(learnerUser, learnerPassword);
+            if (lr.Succeeded) await userManager.AddToRoleAsync(learnerUser, "Learner");
+        }
+        else
+        {
+            // Reset password to known value so demo always works
+            string resetToken = await userManager.GeneratePasswordResetTokenAsync(learnerUser);
+            await userManager.ResetPasswordAsync(learnerUser, resetToken, learnerPassword);
+        }
+
+        // Ensure learner is enrolled in all active courses
+        List<int> activeCourseIds = await db.Courses
+            .Where(c => c.IsActive)
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        foreach (int cid in activeCourseIds)
+        {
+            bool enrolled = await db.Enrollments
+                .AnyAsync(e => e.UserId == learnerUser!.Id && e.CourseId == cid);
+            if (!enrolled)
+            {
+                db.Enrollments.Add(new Enrollment
+                {
+                    UserId = learnerUser!.Id,
+                    CourseId = cid,
+                    Status = EnrollmentStatus.InProgress,
+                    InvitedAt = DateTime.UtcNow
+                });
+            }
+        }
+        await db.SaveChangesAsync();
+        logger.LogInformation("Demo learner ready: {Email}", learnerEmail);
     }
     catch (Exception ex)
     {
