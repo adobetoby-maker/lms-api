@@ -5,7 +5,6 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "numReplicas": 1,
     "startCommand": "dotnet lms-api.dll",
     "healthcheckPath": "/api/auth/health",
     "healthcheckTimeout": 30,
